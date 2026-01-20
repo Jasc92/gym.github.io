@@ -27,6 +27,7 @@ export default function Session() {
     const [restStartTime, setRestStartTime] = useState<number | null>(null)
     const [elapsedTut, setElapsedTut] = useState(0)
     const [elapsedRest, setElapsedRest] = useState(0)
+    const [lastTutTime, setLastTutTime] = useState(0) // Store last TUT for display
 
     const [weight, setWeight] = useState(0)
     const [reps, setReps] = useState(0)
@@ -94,6 +95,18 @@ export default function Session() {
         }
     }, [templateId, navigate])
 
+    // Re-acquire wake lock when page becomes visible again
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && !wakeLockRef.current) {
+                requestWakeLock()
+            }
+        }
+
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }, [])
+
     // Restore session state from saved data
     function restoreSessionState(savedSession: SessionType, templateData: WorkoutTemplate) {
         // Find current exercise (first one without all sets completed)
@@ -110,6 +123,7 @@ export default function Session() {
                     const lastSet = sessionEx.sets[sessionEx.sets.length - 1]
                     setWeight(lastSet.weight)
                     setReps(lastSet.reps)
+                    setLastTutTime(lastSet.tutMs)
                 }
                 return
             }
@@ -164,6 +178,7 @@ export default function Session() {
         try {
             if ('wakeLock' in navigator) {
                 wakeLockRef.current = await navigator.wakeLock.request('screen')
+                console.log('Wake Lock acquired')
             }
         } catch (err) {
             console.log('Wake Lock error:', err)
@@ -185,6 +200,7 @@ export default function Session() {
     }
 
     function endTut() {
+        setLastTutTime(elapsedTut) // Store TUT for display
         setTutStartTime(null)
         setRestStartTime(Date.now())
         setElapsedRest(0)
@@ -205,7 +221,7 @@ export default function Session() {
             reps,
             rpe,
             technicalFailure,
-            tutMs: elapsedTut,
+            tutMs: lastTutTime,
             restMs: elapsedRest,
             startTime: tutStartTime || Date.now(),
             endTime: Date.now()
@@ -237,9 +253,10 @@ export default function Session() {
         setRestStartTime(null)
         setElapsedRest(0)
         setElapsedTut(0)
+        setLastTutTime(0)
         setTechnicalFailure(false)
         setTimerState('IDLE')
-    }, [session, template, currentExerciseIndex, currentSetIndex, weight, reps, rpe, technicalFailure, elapsedTut, elapsedRest, tutStartTime])
+    }, [session, template, currentExerciseIndex, currentSetIndex, weight, reps, rpe, technicalFailure, lastTutTime, elapsedRest, tutStartTime])
 
     async function finishWorkout(finalSession: SessionType) {
         const completed = {
@@ -269,8 +286,6 @@ export default function Session() {
         const secs = totalSeconds % 60
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
     }
-
-
 
     function getLastSetData(): SetData | null {
         if (!session) return null
@@ -346,7 +361,12 @@ export default function Session() {
                     padding: 'var(--spacing-sm) var(--spacing-md)'
                 }}>
                     <p className="text-muted" style={{ fontSize: '0.75rem' }}>Serie anterior:</p>
-                    <p>{lastSet.weight}kg × {lastSet.reps} reps · RPE {lastSet.rpe}</p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{lastSet.weight}kg × {lastSet.reps} reps · RPE {lastSet.rpe}</span>
+                        <span className="text-secondary" style={{ fontSize: '0.75rem' }}>
+                            TUT: {formatTime(lastSet.tutMs)} · Desc: {formatTime(lastSet.restMs)}
+                        </span>
+                    </div>
                 </div>
             )}
 
@@ -371,14 +391,41 @@ export default function Session() {
                 {(timerState === 'REST' || timerState === 'SET_COMPLETE') && (
                     <div className="text-center">
                         <p className="timer-label" style={{ color: isRestComplete ? 'var(--accent-primary)' : 'var(--accent-rest)' }}>
-                            {isRestComplete ? '✅ Descanso completado' : '😮‍💨 Descansando'}
+                            {isRestComplete ? '✅ ¡Listo para siguiente serie!' : '😮‍💨 Descansando...'}
                         </p>
-                        <p className="timer-display" style={{ color: isRestComplete ? 'var(--accent-primary)' : 'var(--accent-rest)' }}>
+                        <p className="timer-display" style={{
+                            color: isRestComplete ? 'var(--accent-primary)' : 'var(--accent-rest)',
+                            fontSize: '5rem'
+                        }}>
                             {formatTime(elapsedRest)}
                         </p>
-                        <p className="text-muted" style={{ marginTop: 'var(--spacing-xs)' }}>
-                            Objetivo: {currentTemplateEx.restSeconds}s
-                        </p>
+
+                        {/* Rest progress bar */}
+                        <div style={{
+                            width: '100%',
+                            height: '8px',
+                            background: 'var(--bg-tertiary)',
+                            borderRadius: 'var(--radius-full)',
+                            marginTop: 'var(--spacing-md)',
+                            overflow: 'hidden'
+                        }}>
+                            <div style={{
+                                width: `${Math.min(100, (elapsedRest / ((currentTemplateEx?.restSeconds || 90) * 1000)) * 100)}%`,
+                                height: '100%',
+                                background: isRestComplete ? 'var(--accent-primary)' : 'var(--accent-rest)',
+                                transition: 'width 0.1s linear'
+                            }} />
+                        </div>
+
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            marginTop: 'var(--spacing-sm)',
+                            fontSize: '0.875rem'
+                        }}>
+                            <span className="text-muted">TUT: {formatTime(lastTutTime)}</span>
+                            <span className="text-muted">Obj: {currentTemplateEx.restSeconds}s</span>
+                        </div>
                     </div>
                 )}
             </div>
