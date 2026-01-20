@@ -12,16 +12,14 @@ export default function Home() {
     const [templates, setTemplates] = useState<WorkoutTemplate[]>([])
     const [activeSession, setActiveSession] = useState<Session | null>(null)
     const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-    const [isInstalled, setIsInstalled] = useState(false)
+    const [hideInstall, setHideInstall] = useState(() => {
+        // Only hide if user explicitly dismissed
+        return localStorage.getItem('gymtrack_hide_install') === 'true'
+    })
     const [showInstructions, setShowInstructions] = useState(false)
 
     useEffect(() => {
         loadData()
-
-        // Check if running as standalone PWA
-        if (window.matchMedia('(display-mode: standalone)').matches) {
-            setIsInstalled(true)
-        }
 
         // Listen for install prompt (Chrome/Edge)
         const handleBeforeInstall = (e: Event) => {
@@ -33,7 +31,8 @@ export default function Home() {
 
         // Detect when app is actually installed
         const handleInstalled = () => {
-            setIsInstalled(true)
+            setHideInstall(true)
+            localStorage.setItem('gymtrack_hide_install', 'true')
             console.log('App installed!')
         }
         window.addEventListener('appinstalled', handleInstalled)
@@ -70,7 +69,8 @@ export default function Home() {
                 const { outcome } = await deferredPrompt.userChoice
                 console.log('Install outcome:', outcome)
                 if (outcome === 'accepted') {
-                    setIsInstalled(true)
+                    setHideInstall(true)
+                    localStorage.setItem('gymtrack_hide_install', 'true')
                 }
                 setDeferredPrompt(null)
             } catch (err) {
@@ -137,8 +137,8 @@ export default function Home() {
                 <p className="text-secondary">Selecciona un entrenamiento</p>
             </header>
 
-            {/* Install button - always visible if not installed */}
-            {!isInstalled && (
+            {/* Install button - always visible if not dismissed */}
+            {!hideInstall && (
                 <button
                     className="btn-action"
                     style={{
@@ -185,7 +185,11 @@ export default function Home() {
                             <button
                                 className="btn-action btn-primary"
                                 style={{ flex: 1 }}
-                                onClick={() => setIsInstalled(true)}
+                                onClick={() => {
+                                    setHideInstall(true)
+                                    localStorage.setItem('gymtrack_hide_install', 'true')
+                                    setShowInstructions(false)
+                                }}
                             >
                                 Ya instalé
                             </button>

@@ -17,6 +17,9 @@ export default defineConfig({
         theme_color: '#000000',
         background_color: '#000000',
         display: 'standalone',
+        scope: '/gym.github.io/',
+        start_url: '/gym.github.io/',
+        id: '/gym.github.io/',
         icons: [
           {
             src: 'pwa-192x192.png',
