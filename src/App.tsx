@@ -3,6 +3,7 @@ import Home from './views/Home'
 import Library from './views/Library'
 import Session from './views/Session'
 import History from './views/History'
+import InstallPrompt from './components/InstallPrompt'
 
 function App() {
   const location = useLocation()
@@ -42,6 +43,8 @@ function App() {
           </NavLink>
         </nav>
       )}
+
+      {!isSessionActive && <InstallPrompt />}
     </>
   )
 }
