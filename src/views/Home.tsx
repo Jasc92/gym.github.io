@@ -18,8 +18,12 @@ export default function Home() {
     useEffect(() => {
         loadData()
 
-        // Check if already installed
-        if (window.matchMedia('(display-mode: standalone)').matches) {
+        // Check if user dismissed install or is in standalone mode for THIS app
+        const dismissed = localStorage.getItem('gymtrack_install_dismissed')
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches &&
+            window.location.hostname.includes('gym')
+
+        if (dismissed === 'true' || isStandalone) {
             setIsInstalled(true)
         }
 
@@ -29,6 +33,12 @@ export default function Home() {
             setDeferredPrompt(e as BeforeInstallPromptEvent)
         }
         window.addEventListener('beforeinstallprompt', handleBeforeInstall)
+
+        // Detect when app is actually installed
+        window.addEventListener('appinstalled', () => {
+            setIsInstalled(true)
+            localStorage.setItem('gymtrack_install_dismissed', 'true')
+        })
 
         return () => {
             window.removeEventListener('beforeinstallprompt', handleBeforeInstall)
