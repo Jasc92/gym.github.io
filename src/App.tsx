@@ -1,5 +1,6 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import Home from './views/Home'
+import Training from './views/Training'
 import Library from './views/Library'
 import Session from './views/Session'
 import History from './views/History'
@@ -13,6 +14,7 @@ function App() {
     <>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/training" element={<Training />} />
         <Route path="/library" element={<Library />} />
         <Route path="/session/:templateId" element={<Session />} />
         <Route path="/history" element={<History />} />
@@ -26,6 +28,12 @@ function App() {
               <polyline points="9 22 9 12 15 12 15 22" />
             </svg>
             <span>Inicio</span>
+          </NavLink>
+          <NavLink to="/training" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6.5 6.5h11M6.5 17.5h11M4 12h16M7 6.5v11M17 6.5v11" />
+            </svg>
+            <span>Entrenar</span>
           </NavLink>
           <NavLink to="/library" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

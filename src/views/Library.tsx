@@ -7,14 +7,24 @@ import {
     type WorkoutTemplate,
     type TemplateExercise
 } from '../db'
+import Modal from '../components/Modal'
 
 type Tab = 'groups' | 'exercises' | 'templates'
+
+interface LibraryExport {
+    muscleGroups: MuscleGroup[]
+    exercises: Exercise[]
+    templates: WorkoutTemplate[]
+}
 
 export default function Library() {
     const [activeTab, setActiveTab] = useState<Tab>('groups')
     const [muscleGroups, setMuscleGroups] = useState<MuscleGroup[]>([])
     const [exercises, setExercises] = useState<Exercise[]>([])
     const [templates, setTemplates] = useState<WorkoutTemplate[]>([])
+    const [showExportModal, setShowExportModal] = useState(false)
+    const [importData, setImportData] = useState('')
+    const [importError, setImportError] = useState('')
 
     useEffect(() => {
         loadData()
@@ -31,10 +41,66 @@ export default function Library() {
         setTemplates(temps)
     }
 
+    function generateExportJSON(): string {
+        const data: LibraryExport = {
+            muscleGroups,
+            exercises,
+            templates
+        }
+        return JSON.stringify(data, null, 2)
+    }
+
+    async function copyExportToClipboard() {
+        await navigator.clipboard.writeText(generateExportJSON())
+        if ('vibrate' in navigator) {
+            navigator.vibrate(100)
+        }
+    }
+
+    async function handleImport() {
+        setImportError('')
+        try {
+            const data: LibraryExport = JSON.parse(importData)
+
+            // Validate structure
+            if (!data.muscleGroups || !data.exercises || !data.templates) {
+                throw new Error('Estructura JSON inválida')
+            }
+
+            // Import muscle groups
+            for (const group of data.muscleGroups) {
+                await db.saveMuscleGroup(group)
+            }
+
+            // Import exercises
+            for (const exercise of data.exercises) {
+                await db.saveExercise(exercise)
+            }
+
+            // Import templates
+            for (const template of data.templates) {
+                await db.saveTemplate(template)
+            }
+
+            await loadData()
+            setImportData('')
+            setShowExportModal(false)
+        } catch (e) {
+            setImportError('Error al importar: ' + (e instanceof Error ? e.message : 'JSON inválido'))
+        }
+    }
+
     return (
         <div className="page">
-            <header className="page-header">
+            <header className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h1 className="page-title">Biblioteca</h1>
+                <button
+                    className="btn-secondary"
+                    style={{ padding: 'var(--spacing-sm) var(--spacing-md)', fontSize: '0.875rem' }}
+                    onClick={() => setShowExportModal(true)}
+                >
+                    📦 Datos
+                </button>
             </header>
 
             <div className="tabs" style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-lg)' }}>
@@ -75,6 +141,55 @@ export default function Library() {
                     onUpdate={loadData}
                 />
             )}
+
+            {/* Import/Export Modal */}
+            <Modal
+                isOpen={showExportModal}
+                onClose={() => { setShowExportModal(false); setImportError('') }}
+                title="Importar / Exportar Datos"
+            >
+                <div>
+                    <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: 'var(--spacing-sm)' }}>
+                        Exportar configuración actual:
+                    </p>
+                    <textarea
+                        readOnly
+                        value={generateExportJSON()}
+                        style={{ marginBottom: 'var(--spacing-sm)', minHeight: '120px' }}
+                    />
+                    <button
+                        className="btn-action btn-primary"
+                        onClick={copyExportToClipboard}
+                        style={{ marginBottom: 'var(--spacing-lg)' }}
+                    >
+                        📋 Copiar JSON
+                    </button>
+
+                    <hr style={{ border: 'none', borderTop: '1px solid var(--bg-tertiary)', margin: 'var(--spacing-md) 0' }} />
+
+                    <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: 'var(--spacing-sm)' }}>
+                        Importar configuración (pegar JSON):
+                    </p>
+                    <textarea
+                        value={importData}
+                        onChange={e => setImportData(e.target.value)}
+                        placeholder='{"muscleGroups": [...], "exercises": [...], "templates": [...]}'
+                        style={{ marginBottom: 'var(--spacing-sm)', minHeight: '120px' }}
+                    />
+                    {importError && (
+                        <p style={{ color: 'var(--accent-danger)', fontSize: '0.875rem', marginBottom: 'var(--spacing-sm)' }}>
+                            {importError}
+                        </p>
+                    )}
+                    <button
+                        className="btn-action btn-secondary"
+                        onClick={handleImport}
+                        disabled={!importData.trim()}
+                    >
+                        📥 Importar
+                    </button>
+                </div>
+            </Modal>
         </div>
     )
 }

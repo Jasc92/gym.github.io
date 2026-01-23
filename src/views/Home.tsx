@@ -1,6 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { db, type WorkoutTemplate, type Session } from '../db'
 
 interface BeforeInstallPromptEvent extends Event {
     prompt: () => Promise<void>
@@ -8,34 +6,35 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export default function Home() {
-    const navigate = useNavigate()
-    const [templates, setTemplates] = useState<WorkoutTemplate[]>([])
-    const [activeSession, setActiveSession] = useState<Session | null>(null)
     const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
     const [hideInstall, setHideInstall] = useState(() => {
-        // Only hide if user explicitly dismissed
         return localStorage.getItem('gymtrack_hide_install') === 'true'
     })
     const [showInstructions, setShowInstructions] = useState(false)
+    const [updateAvailable, setUpdateAvailable] = useState(false)
+    const [isChecking, setIsChecking] = useState(false)
 
     useEffect(() => {
-        loadData()
-
-        // Listen for install prompt (Chrome/Edge)
         const handleBeforeInstall = (e: Event) => {
             e.preventDefault()
             setDeferredPrompt(e as BeforeInstallPromptEvent)
-            console.log('Install prompt captured!')
         }
         window.addEventListener('beforeinstallprompt', handleBeforeInstall)
 
-        // Detect when app is actually installed
         const handleInstalled = () => {
             setHideInstall(true)
             localStorage.setItem('gymtrack_hide_install', 'true')
-            console.log('App installed!')
         }
         window.addEventListener('appinstalled', handleInstalled)
+
+        // Check for service worker updates
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then(registration => {
+                registration.addEventListener('updatefound', () => {
+                    setUpdateAvailable(true)
+                })
+            })
+        }
 
         return () => {
             window.removeEventListener('beforeinstallprompt', handleBeforeInstall)
@@ -43,51 +42,60 @@ export default function Home() {
         }
     }, [])
 
-    async function loadData() {
-        const [templatesData, session] = await Promise.all([
-            db.getAllTemplates(),
-            db.getActiveSession()
-        ])
-        setTemplates(templatesData)
-        setActiveSession(session || null)
-    }
-
-    function startWorkout(templateId: string) {
-        navigate(`/session/${templateId}`)
-    }
-
-    function resumeSession() {
-        if (activeSession) {
-            navigate(`/session/${activeSession.templateId}`)
-        }
-    }
-
     async function handleInstall() {
         if (deferredPrompt) {
             try {
                 await deferredPrompt.prompt()
                 const { outcome } = await deferredPrompt.userChoice
-                console.log('Install outcome:', outcome)
                 if (outcome === 'accepted') {
                     setHideInstall(true)
                     localStorage.setItem('gymtrack_hide_install', 'true')
                 }
                 setDeferredPrompt(null)
-            } catch (err) {
-                console.error('Install error:', err)
+            } catch {
                 setShowInstructions(true)
             }
         } else {
-            // No prompt available, show manual instructions
             setShowInstructions(true)
+        }
+    }
+
+    async function checkForUpdates() {
+        setIsChecking(true)
+        try {
+            if ('serviceWorker' in navigator) {
+                const registration = await navigator.serviceWorker.ready
+                await registration.update()
+
+                if (registration.waiting) {
+                    setUpdateAvailable(true)
+                } else {
+                    // No update found
+                    if ('vibrate' in navigator) {
+                        navigator.vibrate(100)
+                    }
+                }
+            }
+        } catch (err) {
+            console.log('Update check failed:', err)
+        }
+        setIsChecking(false)
+    }
+
+    function applyUpdate() {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then(registration => {
+                if (registration.waiting) {
+                    registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+                    window.location.reload()
+                }
+            })
         }
     }
 
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
     const isAndroid = /Android/.test(navigator.userAgent)
     const isChrome = /Chrome/.test(navigator.userAgent) && !/Edge|Edg/.test(navigator.userAgent)
-    const isEdge = /Edge|Edg/.test(navigator.userAgent)
-    const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)
 
     function getDeviceInstructions() {
         if (isIOS) {
@@ -102,28 +110,13 @@ export default function Home() {
             return (
                 <ol style={{ paddingLeft: 'var(--spacing-lg)', lineHeight: 1.8 }}>
                     <li>Pulsa el menú <strong>(⋮)</strong> arriba a la derecha</li>
-                    <li>Selecciona <strong>"Añadir a pantalla de inicio"</strong> o <strong>"Instalar aplicación"</strong></li>
+                    <li>Selecciona <strong>"Instalar aplicación"</strong></li>
                     <li>Confirma pulsando <strong>"Instalar"</strong></li>
-                </ol>
-            )
-        } else if (isChrome || isEdge) {
-            return (
-                <ol style={{ paddingLeft: 'var(--spacing-lg)', lineHeight: 1.8 }}>
-                    <li>Haz clic en el icono de instalación (📥) en la barra de direcciones</li>
-                    <li>O pulsa el menú <strong>(⋮)</strong> → <strong>"Instalar GymTrack"</strong></li>
-                </ol>
-            )
-        } else if (isSafari) {
-            return (
-                <ol style={{ paddingLeft: 'var(--spacing-lg)', lineHeight: 1.8 }}>
-                    <li>Safari en macOS: <strong>Archivo → Añadir al Dock</strong></li>
-                    <li>O usa <strong>Chrome/Edge</strong> para instalación directa</li>
                 </ol>
             )
         } else {
             return (
                 <ol style={{ paddingLeft: 'var(--spacing-lg)', lineHeight: 1.8 }}>
-                    <li>Abre esta página en <strong>Chrome</strong> o <strong>Edge</strong></li>
                     <li>Busca la opción <strong>"Instalar"</strong> en el menú del navegador</li>
                 </ol>
             )
@@ -132,24 +125,74 @@ export default function Home() {
 
     return (
         <div className="page">
-            <header className="page-header">
-                <h1 className="page-title">GymTrack</h1>
-                <p className="text-secondary">Selecciona un entrenamiento</p>
-            </header>
+            {/* Hero Section */}
+            <div style={{
+                textAlign: 'center',
+                padding: 'var(--spacing-xl) 0',
+                marginBottom: 'var(--spacing-lg)'
+            }}>
+                <h1 style={{
+                    fontSize: '2.5rem',
+                    fontWeight: 800,
+                    background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-rest))',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    marginBottom: 'var(--spacing-xs)'
+                }}>
+                    GymTrack
+                </h1>
+                <p className="text-muted" style={{ fontSize: '0.875rem' }}>
+                    Registro biométrico de entrenamientos
+                </p>
+            </div>
 
-            {/* Install button - always visible if not dismissed */}
+            {/* Update Section */}
+            <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-sm)' }}>
+                    <span style={{ fontWeight: 600 }}>Actualizaciones</span>
+                    {updateAvailable && (
+                        <span style={{
+                            background: 'var(--accent-primary)',
+                            color: 'var(--bg-primary)',
+                            padding: '2px 8px',
+                            borderRadius: 'var(--radius-full)',
+                            fontSize: '0.7rem',
+                            fontWeight: 600
+                        }}>
+                            ¡Disponible!
+                        </span>
+                    )}
+                </div>
+
+                {updateAvailable ? (
+                    <button className="btn-action btn-primary" onClick={applyUpdate}>
+                        🔄 Aplicar Actualización
+                    </button>
+                ) : (
+                    <button
+                        className="btn-action btn-secondary"
+                        onClick={checkForUpdates}
+                        disabled={isChecking}
+                    >
+                        {isChecking ? '⏳ Comprobando...' : '🔍 Revisar Actualizaciones'}
+                    </button>
+                )}
+            </div>
+
+            {/* Install Section */}
             {!hideInstall && (
-                <button
-                    className="btn-action"
-                    style={{
-                        marginBottom: 'var(--spacing-lg)',
-                        background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
-                        color: 'var(--bg-primary)'
-                    }}
-                    onClick={handleInstall}
-                >
-                    📲 Instalar App {deferredPrompt ? '' : '(ver instrucciones)'}
-                </button>
+                <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
+                    <p style={{ fontWeight: 600, marginBottom: 'var(--spacing-sm)' }}>Instalar App</p>
+                    <p className="text-muted" style={{ fontSize: '0.8rem', marginBottom: 'var(--spacing-sm)' }}>
+                        Añade GymTrack a tu pantalla de inicio para acceso rápido
+                    </p>
+                    <button
+                        className="btn-action btn-primary"
+                        onClick={handleInstall}
+                    >
+                        📲 Instalar
+                    </button>
+                </div>
             )}
 
             {/* Instructions Modal */}
@@ -198,50 +241,10 @@ export default function Home() {
                 </div>
             )}
 
-            {activeSession && (
-                <div className="card" style={{ marginBottom: 'var(--spacing-lg)', borderColor: 'var(--accent-warning)' }}>
-                    <p style={{ marginBottom: 'var(--spacing-md)', color: 'var(--accent-warning)' }}>
-                        ⚡ Sesión activa: {activeSession.templateName}
-                    </p>
-                    <button className="btn-action btn-primary" onClick={resumeSession}>
-                        Continuar Sesión
-                    </button>
-                </div>
-            )}
-
-            {templates.length === 0 ? (
-                <div className="card text-center" style={{ padding: 'var(--spacing-xxl)' }}>
-                    <p className="text-secondary" style={{ marginBottom: 'var(--spacing-md)' }}>
-                        No tienes entrenamientos creados
-                    </p>
-                    <button
-                        className="btn-action btn-secondary"
-                        onClick={() => navigate('/library')}
-                    >
-                        Ir a Biblioteca
-                    </button>
-                </div>
-            ) : (
-                <div className="list">
-                    {templates.map(template => (
-                        <div key={template.id} className="list-item">
-                            <div className="list-item-content">
-                                <div className="list-item-title">{template.name}</div>
-                                <div className="list-item-subtitle">
-                                    {template.exercises.length} ejercicios
-                                </div>
-                            </div>
-                            <button
-                                className="btn-action btn-primary"
-                                style={{ width: 'auto', padding: 'var(--spacing-sm) var(--spacing-lg)' }}
-                                onClick={() => startWorkout(template.id)}
-                            >
-                                Iniciar
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
+            {/* Version Info */}
+            <p className="text-muted text-center" style={{ fontSize: '0.7rem', marginTop: 'var(--spacing-lg)' }}>
+                v1.0.0
+            </p>
         </div>
     )
 }

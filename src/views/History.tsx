@@ -1,20 +1,28 @@
 import { useEffect, useState } from 'react'
-import { db, type Session } from '../db'
+import { db, type Session, type Exercise } from '../db'
+import Modal from '../components/Modal'
 
 export default function History() {
     const [sessions, setSessions] = useState<Session[]>([])
+    const [exercises, setExercises] = useState<Exercise[]>([])
+    const [showExportModal, setShowExportModal] = useState(false)
+    const [selectedSession, setSelectedSession] = useState<Session | null>(null)
+    const [exportAll, setExportAll] = useState(false)
 
     useEffect(() => {
-        loadSessions()
+        loadData()
     }, [])
 
-    async function loadSessions() {
-        const allSessions = await db.getAllSessions()
-        // Only show completed sessions, sorted by date descending
+    async function loadData() {
+        const [allSessions, allExercises] = await Promise.all([
+            db.getAllSessions(),
+            db.getAllExercises()
+        ])
         const completed = allSessions
             .filter(s => s.completed)
             .sort((a, b) => b.startTime - a.startTime)
         setSessions(completed)
+        setExercises(allExercises)
     }
 
     function formatDate(timestamp: number) {
@@ -37,26 +45,50 @@ export default function History() {
         return session.exercises.reduce((sum, ex) => sum + ex.sets.length, 0)
     }
 
-    function exportSessionJSON(session: Session) {
-        const data = JSON.stringify(session, null, 2)
-        const blob = new Blob([data], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `gymtrack_${session.templateName.replace(/\s+/g, '_')}_${new Date(session.startTime).toISOString().split('T')[0]}.json`
-        a.click()
-        URL.revokeObjectURL(url)
+    function getExerciseName(exerciseId: string): string {
+        return exercises.find(e => e.id === exerciseId)?.name || exerciseId
     }
 
-    async function exportAllJSON() {
-        const data = JSON.stringify(sessions, null, 2)
-        const blob = new Blob([data], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `gymtrack_all_sessions_${new Date().toISOString().split('T')[0]}.json`
-        a.click()
-        URL.revokeObjectURL(url)
+    function formatSessionForAI(session: Session): object {
+        return {
+            workout: session.templateName,
+            date: new Date(session.startTime).toISOString().split('T')[0],
+            duration_minutes: session.endTime ? Math.round((session.endTime - session.startTime) / 60000) : 0,
+            exercises: session.exercises.map(ex => ({
+                name: getExerciseName(ex.exerciseId),
+                sets: ex.sets.map(s => ({
+                    weight_kg: s.weight,
+                    reps: s.reps,
+                    rpe: s.rpe,
+                    tut_seconds: Math.round(s.tutMs / 1000),
+                    rest_seconds: Math.round(s.restMs / 1000),
+                    technical_failure: s.technicalFailure
+                }))
+            }))
+        }
+    }
+
+    function generateExportJSON(): string {
+        if (exportAll) {
+            const data = sessions.map(formatSessionForAI)
+            return JSON.stringify(data, null, 2)
+        } else if (selectedSession) {
+            return JSON.stringify(formatSessionForAI(selectedSession), null, 2)
+        }
+        return ''
+    }
+
+    async function copyToClipboard() {
+        await navigator.clipboard.writeText(generateExportJSON())
+        if ('vibrate' in navigator) {
+            navigator.vibrate(100)
+        }
+    }
+
+    function openExportModal(session: Session | null, all: boolean) {
+        setSelectedSession(session)
+        setExportAll(all)
+        setShowExportModal(true)
     }
 
     return (
@@ -67,9 +99,9 @@ export default function History() {
                     <button
                         className="btn-secondary"
                         style={{ padding: 'var(--spacing-sm) var(--spacing-md)', fontSize: '0.875rem' }}
-                        onClick={exportAllJSON}
+                        onClick={() => openExportModal(null, true)}
                     >
-                        📥 Exportar todo
+                        📋 Exportar todo
                     </button>
                 )}
             </header>
@@ -91,14 +123,61 @@ export default function History() {
                             <button
                                 className="btn-secondary"
                                 style={{ padding: 'var(--spacing-sm)', fontSize: '0.875rem' }}
-                                onClick={() => exportSessionJSON(session)}
+                                onClick={() => openExportModal(session, false)}
                             >
-                                📥
+                                📋
                             </button>
                         </div>
                     ))}
                 </div>
             )}
+
+            {/* Export Modal */}
+            <Modal
+                isOpen={showExportModal}
+                onClose={() => setShowExportModal(false)}
+                title={exportAll ? 'Exportar Todas las Sesiones' : `Exportar: ${selectedSession?.templateName || ''}`}
+            >
+                <div>
+                    {selectedSession && !exportAll && (
+                        <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
+                            <div className="summary-stat">
+                                <span className="summary-stat-label">Fecha</span>
+                                <span className="summary-stat-value">{formatDate(selectedSession.startTime)}</span>
+                            </div>
+                            <div className="summary-stat">
+                                <span className="summary-stat-label">Duración</span>
+                                <span className="summary-stat-value">
+                                    {formatDuration(selectedSession.startTime, selectedSession.endTime)}
+                                </span>
+                            </div>
+                            <div className="summary-stat">
+                                <span className="summary-stat-label">Series</span>
+                                <span className="summary-stat-value">{getTotalSets(selectedSession)}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {exportAll && (
+                        <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: 'var(--spacing-sm)' }}>
+                            {sessions.length} sesiones en total
+                        </p>
+                    )}
+
+                    <p className="text-muted" style={{ fontSize: '0.75rem', marginBottom: 'var(--spacing-sm)' }}>
+                        JSON optimizado para análisis por IA:
+                    </p>
+                    <textarea
+                        readOnly
+                        value={generateExportJSON()}
+                        style={{ marginBottom: 'var(--spacing-md)' }}
+                    />
+
+                    <button className="btn-action btn-primary" onClick={copyToClipboard}>
+                        📋 Copiar al Portapapeles
+                    </button>
+                </div>
+            </Modal>
         </div>
     )
 }
