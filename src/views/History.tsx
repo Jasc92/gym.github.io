@@ -8,6 +8,8 @@ export default function History() {
     const [showExportModal, setShowExportModal] = useState(false)
     const [selectedSession, setSelectedSession] = useState<Session | null>(null)
     const [exportAll, setExportAll] = useState(false)
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+    const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
 
     useEffect(() => {
         loadData()
@@ -91,6 +93,19 @@ export default function History() {
         setShowExportModal(true)
     }
 
+    function confirmDelete(session: Session) {
+        setSessionToDelete(session)
+        setShowDeleteConfirm(true)
+    }
+
+    async function deleteSession() {
+        if (!sessionToDelete) return
+        await db.deleteSession(sessionToDelete.id)
+        setShowDeleteConfirm(false)
+        setSessionToDelete(null)
+        await loadData()
+    }
+
     return (
         <div className="page">
             <header className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -120,13 +135,22 @@ export default function History() {
                                     {formatDate(session.startTime)} · {formatDuration(session.startTime, session.endTime)} · {getTotalSets(session)} series
                                 </div>
                             </div>
-                            <button
-                                className="btn-secondary"
-                                style={{ padding: 'var(--spacing-sm)', fontSize: '0.875rem' }}
-                                onClick={() => openExportModal(session, false)}
-                            >
-                                📋
-                            </button>
+                            <div className="flex gap-sm">
+                                <button
+                                    className="btn-secondary"
+                                    style={{ padding: 'var(--spacing-sm)', fontSize: '0.875rem' }}
+                                    onClick={() => openExportModal(session, false)}
+                                >
+                                    📋
+                                </button>
+                                <button
+                                    className="btn-secondary"
+                                    style={{ padding: 'var(--spacing-sm)', fontSize: '0.875rem', color: 'var(--accent-danger)' }}
+                                    onClick={() => confirmDelete(session)}
+                                >
+                                    🗑️
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -178,6 +202,45 @@ export default function History() {
                     </button>
                 </div>
             </Modal>
+
+            {/* Delete Confirmation Modal */}
+            <Modal
+                isOpen={showDeleteConfirm}
+                onClose={() => setShowDeleteConfirm(false)}
+                title="🗑️ Eliminar Sesión"
+            >
+                <div>
+                    <p style={{ marginBottom: 'var(--spacing-md)' }}>
+                        ¿Seguro que quieres eliminar esta sesión?
+                    </p>
+                    {sessionToDelete && (
+                        <div className="card" style={{ marginBottom: 'var(--spacing-md)', background: 'var(--bg-tertiary)' }}>
+                            <p style={{ fontWeight: 600 }}>{sessionToDelete.templateName}</p>
+                            <p className="text-muted" style={{ fontSize: '0.8rem' }}>
+                                {formatDate(sessionToDelete.startTime)}
+                            </p>
+                        </div>
+                    )}
+                    <p className="text-muted" style={{ fontSize: '0.8rem', marginBottom: 'var(--spacing-md)', color: 'var(--accent-danger)' }}>
+                        Esta acción no se puede deshacer.
+                    </p>
+                    <div className="flex gap-sm">
+                        <button
+                            className="btn-action btn-secondary"
+                            onClick={() => setShowDeleteConfirm(false)}
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            className="btn-action btn-danger"
+                            onClick={deleteSession}
+                        >
+                            Eliminar
+                        </button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     )
 }
+
